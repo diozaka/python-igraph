@@ -9080,6 +9080,116 @@ PyObject *igraphmodule_Graph_get_subisomorphisms_vf2(igraphmodule_GraphObject *s
   return res;
 }
 
+
+/** \ingroup python_interface_graph
+ * \brief Checks whether a mapping is a subgraph isomorphism
+ *
+ * \sa igraph_is_subisomorphism
+ */
+PyObject *igraphmodule_Graph_is_subisomorphism(igraphmodule_GraphObject *self,
+  PyObject *args, PyObject *kwds) {
+
+  /* initialize Python objects */
+  PyObject *o;
+  PyObject *mapping_o;
+  PyObject *color1_o=Py_None, *color2_o=Py_None;
+  PyObject *edge_color1_o=Py_None, *edge_color2_o=Py_None;
+  PyObject *node_compat_fn=Py_None, *edge_compat_fn=Py_None;
+
+  /* initialize igraph objects */
+  igraphmodule_GraphObject *other;
+  igraph_vector_t mapping;
+  igraph_vector_int_t *color1=0, *color2=0;
+  igraph_vector_int_t *edge_color1=0, *edge_color2=0;
+  igraphmodule_i_Graph_isomorphic_vf2_callback_data_t callback_data;
+  igraph_bool_t iso;
+
+  static char *kwlist[] = { "mapping", "other", "color1", "color2", "edge_color1",
+    "edge_color2", "node_compat_fn", "edge_compat_fn", NULL };
+
+  if (!PyArg_ParseTupleAndKeywords
+      (args, kwds, "OO!|OOOOOO", kwlist,
+       &mapping_o, &igraphmodule_GraphType, &o,
+       &color1_o, &color2_o, &edge_color1_o, &edge_color2_o,
+       &node_compat_fn, &edge_compat_fn))
+    return NULL;
+
+  if (igraphmodule_PyObject_to_vector_t(mapping_o, &mapping, 0))
+    return NULL;
+
+  other=(igraphmodule_GraphObject*)o;
+
+  if (node_compat_fn != Py_None && !PyCallable_Check(node_compat_fn)) {
+    PyErr_SetString(PyExc_TypeError, "node_compat_fn must be None or callable");
+    igraph_vector_destroy(&mapping);
+    return NULL;
+  }
+
+  if (edge_compat_fn != Py_None && !PyCallable_Check(edge_compat_fn)) {
+    PyErr_SetString(PyExc_TypeError, "edge_compat_fn must be None or callable");
+    igraph_vector_destroy(&mapping);
+    return NULL;
+  }
+
+  if (igraphmodule_attrib_to_vector_int_t(color1_o, self, &color1,
+	  ATTRIBUTE_TYPE_VERTEX)) {
+    igraph_vector_destroy(&mapping);
+    return NULL;
+  }
+  if (igraphmodule_attrib_to_vector_int_t(color2_o, other, &color2,
+	  ATTRIBUTE_TYPE_VERTEX)) {
+    igraph_vector_destroy(&mapping);
+    if (color1) { igraph_vector_int_destroy(color1); free(color1); }
+    return NULL;
+  }
+  if (igraphmodule_attrib_to_vector_int_t(edge_color1_o, self, &edge_color1,
+	  ATTRIBUTE_TYPE_EDGE)) {
+    igraph_vector_destroy(&mapping);
+    if (color1) { igraph_vector_int_destroy(color1); free(color1); }
+    if (color2) { igraph_vector_int_destroy(color2); free(color2); }
+    return NULL;
+  }
+  if (igraphmodule_attrib_to_vector_int_t(edge_color2_o, other, &edge_color2,
+	  ATTRIBUTE_TYPE_EDGE)) {
+    igraph_vector_destroy(&mapping);
+    if (color1) { igraph_vector_int_destroy(color1); free(color1); }
+    if (color2) { igraph_vector_int_destroy(color2); free(color2); }
+    if (edge_color1) { igraph_vector_int_destroy(edge_color1); free(edge_color1); }
+    return NULL;
+  }
+
+  callback_data.graph1 = (PyObject*)self;
+  callback_data.graph2 = (PyObject*)other;
+  callback_data.callback_fn = 0;
+  callback_data.node_compat_fn = node_compat_fn == Py_None ? 0 : node_compat_fn;
+  callback_data.edge_compat_fn = edge_compat_fn == Py_None ? 0 : edge_compat_fn;
+
+  if (igraph_is_subisomorphism(NULL, &mapping, &self->g, &other->g, color1, color2,
+        edge_color1, edge_color2,
+        node_compat_fn == Py_None ? 0 : igraphmodule_i_Graph_isomorphic_vf2_node_compat_fn,
+        edge_compat_fn == Py_None ? 0 : igraphmodule_i_Graph_isomorphic_vf2_edge_compat_fn,
+        &callback_data, &iso)) {
+    igraphmodule_handle_igraph_error();
+    igraph_vector_destroy(&mapping);
+    if (color1) { igraph_vector_int_destroy(color1); free(color1); }
+    if (color2) { igraph_vector_int_destroy(color2); free(color2); }
+    if (edge_color1) { igraph_vector_int_destroy(edge_color1); free(edge_color1); }
+    if (edge_color2) { igraph_vector_int_destroy(edge_color2); free(edge_color2); }
+    return NULL;
+  }
+
+  igraph_vector_destroy(&mapping);
+  if (color1) { igraph_vector_int_destroy(color1); free(color1); }
+  if (color2) { igraph_vector_int_destroy(color2); free(color2); }
+  if (edge_color1) { igraph_vector_int_destroy(edge_color1); free(edge_color1); }
+  if (edge_color2) { igraph_vector_int_destroy(edge_color2); free(edge_color2); }
+
+  if (iso)
+    Py_RETURN_TRUE;
+  Py_RETURN_FALSE;
+}
+
+
 /** \ingroup python_interface_graph
  * \brief Determines whether a subgraph of the graph is isomorphic to another graph
  *        using the LAD algorithm.
@@ -9202,6 +9312,82 @@ PyObject *igraphmodule_Graph_get_subisomorphisms_lad(
   igraph_vector_ptr_destroy_all(&mappings);
 
   return result;
+}
+
+PyObject *igraphmodule_Graph_minimum_image_based_support(igraphmodule_GraphObject *self,
+  PyObject *args, PyObject *kwds) {
+
+  /* initialize Python objects */
+  PyObject *o;
+  PyObject *color1_o=Py_None, *color2_o=Py_None;
+  PyObject *edge_color1_o=Py_None, *edge_color2_o=Py_None;
+  PyObject *node_compat_fn=Py_None, *edge_compat_fn=Py_None;
+
+  /* initialize igraph objects */
+  igraphmodule_GraphObject *other;
+  igraph_vector_int_t *color1=0, *color2=0;
+  igraph_vector_int_t *edge_color1=0, *edge_color2=0;
+
+  static char *kwlist[] = { "other", "color1", "color2", "edge_color1",
+    "edge_color2", "node_compat_fn", "edge_compat_fn", NULL };
+
+  if (!PyArg_ParseTupleAndKeywords
+      (args, kwds, "O!|OOOOOO", kwlist,
+       &igraphmodule_GraphType, &o,
+       &color1_o, &color2_o, &edge_color1_o, &edge_color2_o,
+       &node_compat_fn, &edge_compat_fn))
+    return NULL;
+
+  other=(igraphmodule_GraphObject*)o;
+
+  if (node_compat_fn != Py_None && !PyCallable_Check(node_compat_fn)) {
+    PyErr_SetString(PyExc_TypeError, "node_compat_fn must be None or callable");
+    return NULL;
+  }
+
+  if (edge_compat_fn != Py_None && !PyCallable_Check(edge_compat_fn)) {
+    PyErr_SetString(PyExc_TypeError, "edge_compat_fn must be None or callable");
+    return NULL;
+  }
+
+  if (igraphmodule_attrib_to_vector_int_t(color1_o, self, &color1,
+	  ATTRIBUTE_TYPE_VERTEX)) {
+    return NULL;
+  }
+  if (igraphmodule_attrib_to_vector_int_t(color2_o, other, &color2,
+	  ATTRIBUTE_TYPE_VERTEX)) {
+    if (color1) { igraph_vector_int_destroy(color1); free(color1); }
+    return NULL;
+  }
+  if (igraphmodule_attrib_to_vector_int_t(edge_color1_o, self, &edge_color1,
+	  ATTRIBUTE_TYPE_EDGE)) {
+    if (color1) { igraph_vector_int_destroy(color1); free(color1); }
+    if (color2) { igraph_vector_int_destroy(color2); free(color2); }
+    return NULL;
+  }
+  if (igraphmodule_attrib_to_vector_int_t(edge_color2_o, other, &edge_color2,
+	  ATTRIBUTE_TYPE_EDGE)) {
+    if (color1) { igraph_vector_int_destroy(color1); free(color1); }
+    if (color2) { igraph_vector_int_destroy(color2); free(color2); }
+    if (edge_color1) { igraph_vector_int_destroy(edge_color1); free(edge_color1); }
+    return NULL;
+  }
+
+  igraph_integer_t support;
+  int res;
+  res = igraph_mib_support(&self->g, &other->g, color1, color2, edge_color1, edge_color2,
+            node_compat_fn == Py_None ? 0 : igraphmodule_i_Graph_isomorphic_vf2_node_compat_fn,
+            edge_compat_fn == Py_None ? 0 : igraphmodule_i_Graph_isomorphic_vf2_edge_compat_fn,
+            &support);
+  if (color1) { igraph_vector_int_destroy(color1); free(color1); }
+  if (color2) { igraph_vector_int_destroy(color2); free(color2); }
+  if (edge_color1) { igraph_vector_int_destroy(edge_color1); free(edge_color1); }
+  if (edge_color2) { igraph_vector_int_destroy(edge_color2); free(edge_color2); }
+  if (res) {
+    return NULL;
+  } else {
+    return Py_BuildValue("i", support);
+  }
 }
 
 /**********************************************************************
@@ -14802,6 +14988,44 @@ struct PyMethodDef igraphmodule_Graph_methods[] = {
    "  means that every edge is compatible with every other node.\n"
    "@return: a list of lists, each item of the list containing the mapping\n"
    "  from vertices of the second graph to the vertices of the first one\n"},
+  {"is_subisomorphism",
+   (PyCFunction) igraphmodule_Graph_is_subisomorphism,
+   METH_VARARGS | METH_KEYWORDS,
+   "is_subisomorphism(mapping, other, color1=None, color2=None,\n"
+   "  edge_color1=None, edge_color2=None, node_compat_fn=None,\n"
+   "  edge_compat_fn=None)\n\n"
+   "Checks whether the mapping is a subgraph isomorphism between the graph and another one\n\n"
+   "Vertex and edge colors may be used to restrict the isomorphisms, as only\n"
+   "vertices and edges with the same color will be allowed to match each other.\n\n"
+   "@param mapping: list that specifies the mapping from vertices of the other graph\n"
+   "  to vertices of this graph.\n"
+   "@param other: the other graph.\n"
+   "@param color1: optional vector storing the coloring of the vertices of\n"
+   "  the first graph. If C{None}, all vertices have the same color.\n"
+   "@param color2: optional vector storing the coloring of the vertices of\n"
+   "  the second graph. If C{None}, all vertices have the same color.\n"
+   "@param edge_color1: optional vector storing the coloring of the edges of\n"
+   "  the first graph. If C{None}, all edges have the same color.\n"
+   "@param edge_color2: optional vector storing the coloring of the edges of\n"
+   "  the second graph. If C{None}, all edges have the same color.\n"
+   "@param node_compat_fn: a function that receives the two graphs and two\n"
+   "  node indices (one from the first graph, one from the second graph) and\n"
+   "  returns C{True} if the nodes given by the two indices are compatible\n"
+   "  (i.e. they could be matched to each other) or C{False} otherwise. This\n"
+   "  can be used to restrict the set of isomorphisms based on node-specific\n"
+   "  criteria that are too complicated to be represented by node color\n"
+   "  vectors (i.e. the C{color1} and C{color2} parameters). C{None} means\n"
+   "  that every node is compatible with every other node.\n"
+   "@param edge_compat_fn: a function that receives the two graphs and two\n"
+   "  edge indices (one from the first graph, one from the second graph) and\n"
+   "  returns C{True} if the edges given by the two indices are compatible\n"
+   "  (i.e. they could be matched to each other) or C{False} otherwise. This\n"
+   "  can be used to restrict the set of isomorphisms based on edge-specific\n"
+   "  criteria that are too complicated to be represented by edge color\n"
+   "  vectors (i.e. the C{edge_color1} and C{edge_color2} parameters). C{None}\n"
+   "  means that every edge is compatible with every other node.\n"
+   "@return: the result is C{True} if the mapping is a subgraph isomorphism,\n"
+   "  and C{False} otherwise.\n"},
 
   {"subisomorphic_lad", (PyCFunction) igraphmodule_Graph_subisomorphic_lad,
    METH_VARARGS | METH_KEYWORDS,
@@ -14850,6 +15074,40 @@ struct PyMethodDef igraphmodule_Graph_methods[] = {
    "  exceeded, the method will throw an exception.\n"
    "@return: a list of lists, each item of the list containing the mapping\n"
    "  from vertices of the second graph to the vertices of the first one\n"},
+
+  {"minimum_image_based_support",
+   (PyCFunction) igraphmodule_Graph_minimum_image_based_support,
+   METH_VARARGS | METH_KEYWORDS,
+   "minimum_image_based_support(other, color1=None, color2=None,\n"
+   "  edge_color1=None, edge_color2=None, node_compat_fn=None,\n"
+   "  edge_compat_fn=None)\n\n"
+   "Compute the minimum image based support of the other graph within this graph.\n\n"
+   "@param other: the other graph.\n"
+   "@param color1: optional vector storing the coloring of the vertices of\n"
+   "  the first graph. If C{None}, all vertices have the same color.\n"
+   "@param color2: optional vector storing the coloring of the vertices of\n"
+   "  the second graph. If C{None}, all vertices have the same color.\n"
+   "@param edge_color1: optional vector storing the coloring of the edges of\n"
+   "  the first graph. If C{None}, all edges have the same color.\n"
+   "@param edge_color2: optional vector storing the coloring of the edges of\n"
+   "  the second graph. If C{None}, all edges have the same color.\n"
+   "@param node_compat_fn: a function that receives the two graphs and two\n"
+   "  node indices (one from the first graph, one from the second graph) and\n"
+   "  returns C{True} if the nodes given by the two indices are compatible\n"
+   "  (i.e. they could be matched to each other) or C{False} otherwise. This\n"
+   "  can be used to restrict the set of isomorphisms based on node-specific\n"
+   "  criteria that are too complicated to be represented by node color\n"
+   "  vectors (i.e. the C{color1} and C{color2} parameters). C{None} means\n"
+   "  that every node is compatible with every other node.\n"
+   "@param edge_compat_fn: a function that receives the two graphs and two\n"
+   "  edge indices (one from the first graph, one from the second graph) and\n"
+   "  returns C{True} if the edges given by the two indices are compatible\n"
+   "  (i.e. they could be matched to each other) or C{False} otherwise. This\n"
+   "  can be used to restrict the set of isomorphisms based on edge-specific\n"
+   "  criteria that are too complicated to be represented by edge color\n"
+   "  vectors (i.e. the C{edge_color1} and C{edge_color2} parameters). C{None}\n"
+   "  means that every edge is compatible with every other node.\n"
+   "@return: support value.\n"},
 
   ////////////////////////
   // ATTRIBUTE HANDLING //

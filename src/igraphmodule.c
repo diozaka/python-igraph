@@ -548,6 +548,97 @@ PyObject* igraphmodule_split_join_distance(PyObject *self,
   return Py_BuildValue("ll", (long)distance12, (long)distance21);
 }
 
+
+PyObject* igraphmodule_convert_mapping_by_names(PyObject* self, PyObject* args, PyObject* kwds) {
+  PyObject *map21_o, *map43_o, *g1_o, *g2_o, *g3_o, *g4_o;
+  igraph_vector_t map21, map43;
+  igraphmodule_GraphObject *g1, *g2, *g3, *g4;
+  igraph_integer_t vid1, vid2, vid3, vid4, vcount;
+  igraph_strvector_t name1, names4;
+  const char *target_name;
+
+  if (!PyArg_ParseTuple(args, "OOOOO", &map21_o, &g1_o, &g2_o, &g3_o, &g4_o))
+    return NULL;
+
+  if (igraphmodule_PyObject_to_vector_t(map21_o, &map21, 0))
+    return NULL;
+  vcount = igraph_vector_size(&map21);
+
+  g1 = (igraphmodule_GraphObject*)g1_o;
+  g2 = (igraphmodule_GraphObject*)g2_o;
+  g3 = (igraphmodule_GraphObject*)g3_o;
+  g4 = (igraphmodule_GraphObject*)g4_o;
+
+  /* TODO: perform sanity checks (# nodes) */
+
+  if (igraph_strvector_init(&name1, 1))
+    return NULL;
+  if (igraph_strvector_init(&names4, 0)) {
+    igraph_strvector_destroy(&name1);
+    return NULL;
+  }
+
+  /* fetch names of all vertices in g4 */
+  if (igraphmodule_i_get_string_vertex_attr(&g4->g, "name", igraph_vss_all(), &names4)) {
+    igraph_strvector_destroy(&name1);
+    igraph_strvector_destroy(&names4);
+    PyErr_SetString(PyExc_ValueError, "could not fetch source names in g4");
+    return NULL;
+  }
+
+  igraph_vector_init(&map43, vcount);
+  for (vid4 = 0; vid4 < vcount; vid4++) {
+    /* fetch id of node with the same name in g2 */
+    if (igraphmodule_get_vertex_id_by_name(&g2->g, Py_BuildValue("s", STR(names4, vid4)), &vid2)) {
+      igraph_strvector_destroy(&name1);
+      igraph_strvector_destroy(&names4);
+      igraph_vector_destroy(&map43);
+      PyErr_SetString(PyExc_ValueError, "could not find source node by name in g2");
+      return NULL;
+    }
+
+    /* fetch id of target node of vid2 in g1 */
+    vid1 = VECTOR(map21)[vid2];
+    if (vid1 >= igraph_vcount(&g1->g)) {
+      igraph_strvector_destroy(&name1);
+      igraph_strvector_destroy(&names4);
+      igraph_vector_destroy(&map43);
+      PyErr_SetString(PyExc_ValueError, "invalid target node in mapping");
+      return NULL;
+    }
+
+    /* fetch name of vid1 in g1 */
+    if (igraphmodule_i_get_string_vertex_attr(&g1->g, "name", igraph_vss_1(vid1), &name1)) {
+      igraph_strvector_destroy(&name1);
+      igraph_strvector_destroy(&names4);
+      igraph_vector_destroy(&map43);
+      PyErr_SetString(PyExc_ValueError, "could not retreive target node name in g1");
+      return NULL;
+    }
+    target_name = STR(name1, 0);
+
+    /* fetch id of node with the same target name in g3 */
+    if (igraphmodule_get_vertex_id_by_name(&g3->g, Py_BuildValue("s", target_name), &vid3)) {
+      igraph_strvector_destroy(&name1);
+      igraph_strvector_destroy(&names4);
+      igraph_vector_destroy(&map43);
+      PyErr_SetString(PyExc_ValueError, "could not find target node by name in g3");
+      return NULL;
+    }
+
+    VECTOR(map43)[vid4] = vid3;
+  }
+
+  map43_o = igraphmodule_vector_t_to_PyList(&map43, IGRAPHMODULE_TYPE_INT);
+  igraph_strvector_destroy(&name1);
+  igraph_strvector_destroy(&names4);
+  igraph_vector_destroy(&map43);
+  if (!map43_o) {
+    return NULL;
+  }
+  return map43_o;
+}
+
 /** \ingroup python_interface
  * \brief Method table for the igraph Python module
  */
@@ -645,6 +736,10 @@ static PyMethodDef igraphmodule_methods[] =
       "@param handler: the status handler function. It must accept a single\n"
       "  argument, the message that informs the user about what igraph is\n"
       "  doing right now.\n"
+  },
+  {"convert_mapping_by_names", (PyCFunction)igraphmodule_convert_mapping_by_names,
+    METH_VARARGS | METH_KEYWORDS,
+    "convert_mapping_by_names(map21, g1, g2, g3, g4)"
   },
   {"_split_join_distance", (PyCFunction)igraphmodule_split_join_distance,
     METH_VARARGS | METH_KEYWORDS,
