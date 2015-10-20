@@ -639,6 +639,386 @@ PyObject* igraphmodule_convert_mapping_by_names(PyObject* self, PyObject* args, 
   return map43_o;
 }
 
+
+PyObject* igraphmodule_dynamic_neighorhood_projection(PyObject* self, PyObject* args, PyObject* kwds) {
+  PyObject *g1_o, *g2_o;
+  igraphmodule_GraphObject *g1, *g2;
+  igraph_integer_t vid1, vid2, vcount;
+  igraph_strvector_t names1, labels1, attr2;
+  igraph_spmatrix_t changed_g1, changed_g2;
+  igraph_vector_t changed_g1_vec, changed_g2_vec;
+  igraph_vector_t neis1, neis2;
+  igraph_spmatrix_iter_t it;
+  igraph_bool_t has_edge_labels, has_node_labels;
+  const char *str1, *str2;
+  int i;
+  PyStringObject *tmp_str;
+
+  if (!PyArg_ParseTuple(args, "O!O!", &igraphmodule_GraphType, &g1_o,
+                                      &igraphmodule_GraphType, &g2_o))
+    return NULL;
+
+  g1 = (igraphmodule_GraphObject*)g1_o;
+  g2 = (igraphmodule_GraphObject*)g2_o;
+
+  has_node_labels = 1;
+  has_edge_labels = 0;//(igraph_cattribute_has_attr(&g1->g, IGRAPH_ATTRIBUTE_EDGE, "label")
+                      //&& igraph_cattribute_has_attr(&g2->g, IGRAPH_ATTRIBUTE_EDGE, "label"));
+
+
+  /* fetch names of all vertices in g1 */
+  if (igraph_strvector_init(&names1, 0))
+    return NULL;
+  if (igraphmodule_i_get_string_vertex_attr(&g1->g, "name", igraph_vss_all(), &names1)) {
+    igraph_strvector_destroy(&names1);
+    PyErr_SetString(PyExc_ValueError, "could not fetch names in g1");
+    return NULL;
+  }
+
+  /* fetch labels of all vertices in g1 */
+  if (igraph_strvector_init(&labels1, 0)) {
+    igraph_strvector_destroy(&names1);
+    return NULL;
+  }
+  if (igraphmodule_i_get_string_vertex_attr(&g1->g, "label", igraph_vss_all(), &labels1)) {
+    igraph_strvector_destroy(&names1);
+    igraph_strvector_destroy(&labels1);
+    PyErr_SetString(PyExc_ValueError, "could not fetch labels in g1");
+    return NULL;
+  }
+
+  vcount = igraph_strvector_size(&names1);
+
+  if (igraph_strvector_init(&attr2, 1)) {
+    igraph_strvector_destroy(&names1);
+    igraph_strvector_destroy(&labels1);
+    return NULL;
+  }
+
+  if (igraph_spmatrix_init(&changed_g1, 1, vcount)) {
+    igraph_strvector_destroy(&names1);
+    igraph_strvector_destroy(&labels1);
+    igraph_strvector_destroy(&attr2);
+    return NULL;
+  }
+
+  if (igraph_spmatrix_init(&changed_g2, 1, vcount)) {
+    igraph_strvector_destroy(&names1);
+    igraph_strvector_destroy(&labels1);
+    igraph_strvector_destroy(&attr2);
+    igraph_spmatrix_destroy(&changed_g1);
+    return NULL;
+  }
+
+  if (igraph_vector_init(&neis1, 0)) {
+    igraph_strvector_destroy(&names1);
+    igraph_strvector_destroy(&labels1);
+    igraph_strvector_destroy(&attr2);
+    igraph_spmatrix_destroy(&changed_g1);
+    igraph_spmatrix_destroy(&changed_g2);
+    return NULL;
+  }
+
+  if (igraph_vector_init(&neis2, 0)) {
+    igraph_strvector_destroy(&names1);
+    igraph_strvector_destroy(&labels1);
+    igraph_strvector_destroy(&attr2);
+    igraph_vector_destroy(&neis1);
+    igraph_spmatrix_destroy(&changed_g1);
+    igraph_spmatrix_destroy(&changed_g2);
+    return NULL;
+  }
+
+  for (vid1 = 0; vid1 < vcount; vid1++) {
+    /* fetch id of node with the same name in g2 */
+    tmp_str = PyString_FromString(STR(names1, vid1));
+    if (igraphmodule_get_vertex_id_by_name(&g2->g, tmp_str, &vid2)) {
+      igraph_strvector_destroy(&names1);
+      igraph_strvector_destroy(&labels1);
+      igraph_strvector_destroy(&attr2);
+      igraph_vector_destroy(&neis1);
+      igraph_vector_destroy(&neis2);
+      igraph_spmatrix_destroy(&changed_g1);
+      igraph_spmatrix_destroy(&changed_g2);
+      Py_DECREF(tmp_str);
+      PyErr_SetString(PyExc_ValueError, "could not find node by name in g2");
+      return NULL;
+    }
+    Py_DECREF(tmp_str);
+
+    // node label changed?
+    if (has_node_labels) {
+      if (igraphmodule_i_get_string_vertex_attr(&g2->g, "label", igraph_vss_1(vid2), &attr2)) {
+        igraph_strvector_destroy(&names1);
+        igraph_strvector_destroy(&labels1);
+        igraph_strvector_destroy(&attr2);
+        igraph_vector_destroy(&neis1);
+        igraph_vector_destroy(&neis2);
+        igraph_spmatrix_destroy(&changed_g1);
+        igraph_spmatrix_destroy(&changed_g2);
+        PyErr_SetString(PyExc_ValueError, "could not retreive label in g2");
+        return NULL;
+      }
+      str1 = STR(labels1, vid1);
+      str2 = STR(attr2, 0);
+      if (strcmp(str1, str2) != 0) {
+        // node label changed
+        igraph_spmatrix_set(&changed_g1, 0, vid1, 1);
+        igraph_spmatrix_set(&changed_g2, 0, vid2, 1);
+        continue;
+      }
+    }
+
+    // edge existence changed?
+
+    /* fetch in-neighbors of v1 and v2 */
+    igraph_neighbors(&g1->g, &neis1, vid1, IGRAPH_IN);
+    igraph_neighbors(&g2->g, &neis2, vid2, IGRAPH_IN);
+
+    /* check all in-edges that are present in graph1 for existence in graph2 and labels */
+    short int end = 0;
+    for (i = 0; !end && i < igraph_vector_size(&neis1); i++) {
+      igraph_integer_t v1nei, v2nei;
+      v1nei = (long int) VECTOR(neis1)[i];
+
+      /* fetch id of node with the same name in g2 */
+      tmp_str = PyString_FromString(STR(names1, v1nei));
+      if (igraphmodule_get_vertex_id_by_name(&g2->g, tmp_str, &v2nei)) {
+        igraph_strvector_destroy(&names1);
+        igraph_strvector_destroy(&labels1);
+        igraph_strvector_destroy(&attr2);
+        igraph_vector_destroy(&neis1);
+        igraph_vector_destroy(&neis2);
+        igraph_spmatrix_destroy(&changed_g1);
+        igraph_spmatrix_destroy(&changed_g2);
+        Py_DECREF(tmp_str);
+        PyErr_SetString(PyExc_ValueError, "could not find node by name in g2");
+        return NULL;
+      }
+      Py_DECREF(tmp_str);
+
+      /* There is an edge v1<-v1nei in graph1, check for v2<-v2nei edge in graph2 */
+      if (!igraph_vector_binsearch2(&neis2, v2nei)) {
+        // edge is not present anymore
+        igraph_spmatrix_set(&changed_g1, 0, vid1, 1);
+        igraph_spmatrix_set(&changed_g2, 0, vid2, 1);
+        end = 1;
+        continue;
+      } else if (has_edge_labels) {
+        /* edge is present, check if edge label has changed */
+        igraph_integer_t eid1, eid2;
+        igraph_get_eid(&g1->g, &eid1, (igraph_integer_t) v1nei, (igraph_integer_t) vid1, 1, 1);
+        igraph_get_eid(&g2->g, &eid2, (igraph_integer_t) v2nei, (igraph_integer_t) vid2, 1, 1);
+
+        str1 = igraph_cattribute_EAS(&g1->g, "label", eid1);
+        str2 = igraph_cattribute_EAS(&g2->g, "label", eid2);
+        if (strcmp(str1, str2) != 0) {
+          // edge label changed
+          igraph_spmatrix_set(&changed_g1, 0, vid1, 1);
+          igraph_spmatrix_set(&changed_g2, 0, vid2, 1);
+          end = 1;
+          continue;
+        }
+      }
+    }
+    if (end)
+      continue;
+
+    /* check all in-edges that are present in graph2 for existence in graph1 */
+    end = 0;
+    for (i = 0; !end && i < igraph_vector_size(&neis2); i++) {
+      igraph_integer_t v1nei, v2nei;
+      v2nei = (long int) VECTOR(neis2)[i];
+
+      /* fetch name of v2nei */
+      if (igraphmodule_i_get_string_vertex_attr(&g2->g, "name", igraph_vss_1(v2nei), &attr2)) {
+        igraph_strvector_destroy(&names1);
+        igraph_strvector_destroy(&labels1);
+        igraph_strvector_destroy(&attr2);
+        igraph_vector_destroy(&neis1);
+        igraph_vector_destroy(&neis2);
+        igraph_spmatrix_destroy(&changed_g1);
+        igraph_spmatrix_destroy(&changed_g2);
+        PyErr_SetString(PyExc_ValueError, "could not find neighbor name in g2");
+        return NULL;
+      }
+
+      /* fetch id of node with the same name in g1 */
+      tmp_str = PyString_FromString(STR(attr2, 0));
+      if (igraphmodule_get_vertex_id_by_name(&g1->g, tmp_str, &v1nei)) {
+        igraph_strvector_destroy(&names1);
+        igraph_strvector_destroy(&labels1);
+        igraph_strvector_destroy(&attr2);
+        igraph_vector_destroy(&neis1);
+        igraph_vector_destroy(&neis2);
+        igraph_spmatrix_destroy(&changed_g1);
+        igraph_spmatrix_destroy(&changed_g2);
+        Py_DECREF(tmp_str);
+        PyErr_SetString(PyExc_ValueError, "could not find neighbor node by name in g1");
+        return NULL;
+      }
+      Py_DECREF(tmp_str);
+
+      /* There is an edge v2<-v2nei in graph2, check for v1<-v1nei edge in graph1 */
+      if (!igraph_vector_binsearch2(&neis1, v1nei)) {
+        // edge was not present before
+        igraph_spmatrix_set(&changed_g1, 0, vid1, 1);
+        igraph_spmatrix_set(&changed_g2, 0, vid2, 1);
+        end = 1;
+        continue;
+      }
+    }
+    if (end)
+      continue;
+
+    /* fetch out-neighbors of v1 and v2 */
+    igraph_vector_destroy(&neis1);
+    igraph_vector_destroy(&neis2);
+    igraph_vector_init(&neis1, 0);
+    igraph_vector_init(&neis2, 0);
+    igraph_neighbors(&g1->g, &neis1, vid1, IGRAPH_OUT);
+    igraph_neighbors(&g2->g, &neis2, vid2, IGRAPH_OUT);
+
+    /* check all out-edges that are present in graph1 for existence in graph2 */
+    end = 0;
+    for (i = 0; !end && i < igraph_vector_size(&neis1); i++) {
+      igraph_integer_t v1nei, v2nei;
+      v1nei = (long int) VECTOR(neis1)[i];
+
+      /* fetch id of node with the same name in g2 */
+      tmp_str = PyString_FromString(STR(names1, v1nei));
+      if (igraphmodule_get_vertex_id_by_name(&g2->g, tmp_str, &v2nei)) {
+        igraph_strvector_destroy(&names1);
+        igraph_strvector_destroy(&labels1);
+        igraph_strvector_destroy(&attr2);
+        igraph_vector_destroy(&neis1);
+        igraph_vector_destroy(&neis2);
+        igraph_spmatrix_destroy(&changed_g1);
+        igraph_spmatrix_destroy(&changed_g2);
+        Py_DECREF(tmp_str);
+        PyErr_SetString(PyExc_ValueError, "could not find node by name in g2");
+        return NULL;
+      }
+      Py_DECREF(tmp_str);
+
+      /* There is an edge v1->v1nei in graph1, check for v2->v2nei edge in graph2 */
+      if (!igraph_vector_binsearch2(&neis2, v2nei)) {
+        // edge is not present anymore
+        igraph_spmatrix_set(&changed_g1, 0, vid1, 1);
+        igraph_spmatrix_set(&changed_g2, 0, vid2, 1);
+        end = 1;
+        continue;
+      } else if (has_edge_labels) {
+        /* edge is present, check if edge label has changed */
+        igraph_integer_t eid1, eid2;
+        igraph_get_eid(&g1->g, &eid1, (igraph_integer_t) vid1, (igraph_integer_t) v1nei, 1, 1);
+        igraph_get_eid(&g2->g, &eid2, (igraph_integer_t) vid2, (igraph_integer_t) v2nei, 1, 1);
+
+        str1 = igraph_cattribute_EAS(&g1->g, "label", eid1);
+        str2 = igraph_cattribute_EAS(&g2->g, "label", eid2);
+        if (strcmp(str1, str2) != 0) {
+          // edge label changed
+          igraph_spmatrix_set(&changed_g1, 0, vid1, 1);
+          igraph_spmatrix_set(&changed_g2, 0, vid2, 1);
+          end = 1;
+          continue;
+        }
+      }
+    }
+    if (end)
+      continue;
+
+    /* check all out-edges that are present in graph2 for existence in graph1 */
+    end = 0;
+    for (i = 0; !end && i < igraph_vector_size(&neis2); i++) {
+      igraph_integer_t v1nei, v2nei;
+      v2nei = (long int) VECTOR(neis2)[i];
+
+      /* fetch name of v2nei */
+      if (igraphmodule_i_get_string_vertex_attr(&g2->g, "name", igraph_vss_1(v2nei), &attr2)) {
+        igraph_strvector_destroy(&names1);
+        igraph_strvector_destroy(&labels1);
+        igraph_strvector_destroy(&attr2);
+        igraph_vector_destroy(&neis1);
+        igraph_vector_destroy(&neis2);
+        igraph_spmatrix_destroy(&changed_g1);
+        igraph_spmatrix_destroy(&changed_g2);
+        PyErr_SetString(PyExc_ValueError, "could not find neighbor name in g2");
+        return NULL;
+      }
+
+      /* fetch id of node with the same name in g1 */
+      tmp_str = PyString_FromString(STR(attr2, 0));
+      if (igraphmodule_get_vertex_id_by_name(&g1->g, tmp_str, &v1nei)) {
+        igraph_strvector_destroy(&names1);
+        igraph_strvector_destroy(&labels1);
+        igraph_strvector_destroy(&attr2);
+        igraph_vector_destroy(&neis1);
+        igraph_vector_destroy(&neis2);
+        igraph_spmatrix_destroy(&changed_g1);
+        igraph_spmatrix_destroy(&changed_g2);
+        Py_DECREF(tmp_str);
+        PyErr_SetString(PyExc_ValueError, "could not find neighbor node by name in g1");
+        return NULL;
+      }
+      Py_DECREF(tmp_str);
+
+      /* There is an edge v2<-v2nei in graph2, check for v1<-v1nei edge in graph1 */
+      if (!igraph_vector_binsearch2(&neis1, v1nei)) {
+        // edge was not present before
+        igraph_spmatrix_set(&changed_g1, 0, vid1, 1);
+        igraph_spmatrix_set(&changed_g2, 0, vid2, 1);
+        end = 1;
+        continue;
+      }
+    }
+  }
+
+  /* build a vector from the non-zero elements in changed_g1 */
+  igraph_vector_init(&changed_g1_vec, igraph_spmatrix_count_nonzero(&changed_g1));
+  igraph_spmatrix_iter_create(&it, &changed_g1);
+  i = 0;
+  while (!igraph_spmatrix_iter_end(&it)) {
+    VECTOR(changed_g1_vec)[i] = it.ci; /* column index (ci) is the vertex id */
+    i += 1;
+    igraph_spmatrix_iter_next(&it);
+  }
+  igraph_spmatrix_iter_destroy(&it);
+
+  /* build a vector from the non-zero elements in changed_g2 */
+  igraph_vector_init(&changed_g2_vec, igraph_spmatrix_count_nonzero(&changed_g2));
+  igraph_spmatrix_iter_create(&it, &changed_g2);
+  i = 0;
+  while (!igraph_spmatrix_iter_end(&it)) {
+    VECTOR(changed_g2_vec)[i] = it.ci; /* column index (ci) is the vertex id */
+    i += 1;
+    igraph_spmatrix_iter_next(&it);
+  }
+  igraph_spmatrix_iter_destroy(&it);
+
+  /* build return value */
+  PyObject *changed_g1_PyList = igraphmodule_vector_t_to_PyList(&changed_g1_vec,
+                                    IGRAPHMODULE_TYPE_INT);
+  PyObject *changed_g2_PyList = igraphmodule_vector_t_to_PyList(&changed_g1_vec,
+                                    IGRAPHMODULE_TYPE_INT);
+
+  igraph_strvector_destroy(&names1);
+  igraph_strvector_destroy(&labels1);
+  igraph_strvector_destroy(&attr2);
+  igraph_spmatrix_destroy(&changed_g1);
+  igraph_spmatrix_destroy(&changed_g2);
+  igraph_vector_destroy(&neis1);
+  igraph_vector_destroy(&neis2);
+  igraph_vector_destroy(&changed_g1_vec);
+  igraph_vector_destroy(&changed_g2_vec);
+
+  PyObject *retval = Py_BuildValue("(OO)", changed_g1_PyList, changed_g2_PyList);
+  Py_DECREF(changed_g1_PyList);
+  Py_DECREF(changed_g2_PyList);
+  return retval;
+}
+
+
 /** \ingroup python_interface
  * \brief Method table for the igraph Python module
  */
@@ -740,6 +1120,10 @@ static PyMethodDef igraphmodule_methods[] =
   {"convert_mapping_by_names", (PyCFunction)igraphmodule_convert_mapping_by_names,
     METH_VARARGS | METH_KEYWORDS,
     "convert_mapping_by_names(map21, g1, g2, g3, g4)"
+  },
+  {"dynamic_neighborhood_projection", (PyCFunction)igraphmodule_dynamic_neighorhood_projection,
+    METH_VARARGS | METH_KEYWORDS,
+    "dynamic_neighborhood_projection(g1, g2)"
   },
   {"_split_join_distance", (PyCFunction)igraphmodule_split_join_distance,
     METH_VARARGS | METH_KEYWORDS,
