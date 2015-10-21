@@ -652,7 +652,7 @@ PyObject* igraphmodule_dynamic_neighorhood_projection(PyObject* self, PyObject* 
   igraph_bool_t has_edge_labels, has_node_labels;
   const char *str1, *str2;
   int i;
-  PyStringObject *tmp_str;
+  PyObject *tmp_str;
 
   if (!PyArg_ParseTuple(args, "O!O!", &igraphmodule_GraphType, &g1_o,
                                       &igraphmodule_GraphType, &g2_o))
@@ -661,9 +661,10 @@ PyObject* igraphmodule_dynamic_neighorhood_projection(PyObject* self, PyObject* 
   g1 = (igraphmodule_GraphObject*)g1_o;
   g2 = (igraphmodule_GraphObject*)g2_o;
 
-  has_node_labels = 1;
-  has_edge_labels = 0;//(igraph_cattribute_has_attr(&g1->g, IGRAPH_ATTRIBUTE_EDGE, "label")
-                      //&& igraph_cattribute_has_attr(&g2->g, IGRAPH_ATTRIBUTE_EDGE, "label"));
+  has_node_labels = (igraphmodule_has_vertex_attribute(&g1->g, "label")
+                      && igraphmodule_has_vertex_attribute(&g2->g, "label"));
+  has_edge_labels = (igraphmodule_has_edge_attribute(&g1->g, "label")
+                      && igraphmodule_has_edge_attribute(&g2->g, "label"));
 
 
   /* fetch names of all vertices in g1 */
@@ -680,11 +681,13 @@ PyObject* igraphmodule_dynamic_neighorhood_projection(PyObject* self, PyObject* 
     igraph_strvector_destroy(&names1);
     return NULL;
   }
-  if (igraphmodule_i_get_string_vertex_attr(&g1->g, "label", igraph_vss_all(), &labels1)) {
-    igraph_strvector_destroy(&names1);
-    igraph_strvector_destroy(&labels1);
-    PyErr_SetString(PyExc_ValueError, "could not fetch labels in g1");
-    return NULL;
+  if (has_node_labels) {
+    if (igraphmodule_i_get_string_vertex_attr(&g1->g, "label", igraph_vss_all(), &labels1)) {
+      igraph_strvector_destroy(&names1);
+      igraph_strvector_destroy(&labels1);
+      PyErr_SetString(PyExc_ValueError, "could not fetch labels in g1");
+      return NULL;
+    }
   }
 
   vcount = igraph_strvector_size(&names1);
