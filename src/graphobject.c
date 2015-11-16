@@ -8838,13 +8838,13 @@ PyObject *igraphmodule_Graph_subisomorphic_vf2(igraphmodule_GraphObject * self,
 
   if (callback_data.callback_fn == 0) {
     retval = igraph_subisomorphic_vf2(&self->g, &other->g,
-        color1, color2, edge_color1, edge_color2, &result, map12, map21,
+        color1, color2, edge_color1, edge_color2, /*induced=*/ 1, &result, map12, map21,
         node_compat_fn == Py_None ? 0 : igraphmodule_i_Graph_isomorphic_vf2_node_compat_fn,
         edge_compat_fn == Py_None ? 0 : igraphmodule_i_Graph_isomorphic_vf2_edge_compat_fn,
         &callback_data);
   } else {
     retval = igraph_subisomorphic_function_vf2(&self->g, &other->g,
-        color1, color2, edge_color1, edge_color2, map12, map21,
+        color1, color2, edge_color1, edge_color2, /*induced=*/ 1, map12, map21,
         igraphmodule_i_Graph_isomorphic_vf2_callback_fn,
         node_compat_fn == Py_None ? 0 : igraphmodule_i_Graph_isomorphic_vf2_node_compat_fn,
         edge_compat_fn == Py_None ? 0 : igraphmodule_i_Graph_isomorphic_vf2_edge_compat_fn,
@@ -8960,7 +8960,7 @@ PyObject *igraphmodule_Graph_count_subisomorphisms_vf2(igraphmodule_GraphObject 
   callback_data.edge_compat_fn = edge_compat_fn == Py_None ? 0 : edge_compat_fn;
 
   if (igraph_count_subisomorphisms_vf2(&self->g, &other->g, color1, color2,
-        edge_color1, edge_color2, &result,
+        edge_color1, edge_color2, /*induced=*/ 1, &result,
         node_compat_fn == Py_None ? 0 : igraphmodule_i_Graph_isomorphic_vf2_node_compat_fn,
         edge_compat_fn == Py_None ? 0 : igraphmodule_i_Graph_isomorphic_vf2_edge_compat_fn,
         &callback_data)) {
@@ -9054,7 +9054,7 @@ PyObject *igraphmodule_Graph_get_subisomorphisms_vf2(igraphmodule_GraphObject *s
   callback_data.edge_compat_fn = edge_compat_fn == Py_None ? 0 : edge_compat_fn;
 
   if (igraph_get_subisomorphisms_vf2(&self->g, &other->g, color1, color2,
-        edge_color1, edge_color2, &result,
+        edge_color1, edge_color2, /*induced=*/ 1, &result,
         node_compat_fn == Py_None ? 0 : igraphmodule_i_Graph_isomorphic_vf2_node_compat_fn,
         edge_compat_fn == Py_None ? 0 : igraphmodule_i_Graph_isomorphic_vf2_edge_compat_fn,
         &callback_data)) {
@@ -9165,7 +9165,7 @@ PyObject *igraphmodule_Graph_is_subisomorphism(igraphmodule_GraphObject *self,
   callback_data.edge_compat_fn = edge_compat_fn == Py_None ? 0 : edge_compat_fn;
 
   if (igraph_is_subisomorphism(NULL, &mapping, &self->g, &other->g, color1, color2,
-        edge_color1, edge_color2,
+        edge_color1, edge_color2, /*induced=*/ 1,
         node_compat_fn == Py_None ? 0 : igraphmodule_i_Graph_isomorphic_vf2_node_compat_fn,
         edge_compat_fn == Py_None ? 0 : igraphmodule_i_Graph_isomorphic_vf2_edge_compat_fn,
         &callback_data, &iso)) {
