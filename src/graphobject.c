@@ -9322,19 +9322,21 @@ PyObject *igraphmodule_Graph_minimum_image_based_support(igraphmodule_GraphObjec
   PyObject *color1_o=Py_None, *color2_o=Py_None;
   PyObject *edge_color1_o=Py_None, *edge_color2_o=Py_None;
   PyObject *node_compat_fn=Py_None, *edge_compat_fn=Py_None;
+  PyObject *induced_o=Py_True;
 
   /* initialize igraph objects */
   igraphmodule_GraphObject *other;
   igraph_vector_int_t *color1=0, *color2=0;
   igraph_vector_int_t *edge_color1=0, *edge_color2=0;
+  igraph_bool_t induced = 1;
 
   static char *kwlist[] = { "other", "color1", "color2", "edge_color1",
-    "edge_color2", "node_compat_fn", "edge_compat_fn", NULL };
+    "edge_color2", "induced", "node_compat_fn", "edge_compat_fn", NULL };
 
   if (!PyArg_ParseTupleAndKeywords
-      (args, kwds, "O!|OOOOOO", kwlist,
+      (args, kwds, "O!|OOOOOOO", kwlist,
        &igraphmodule_GraphType, &o,
-       &color1_o, &color2_o, &edge_color1_o, &edge_color2_o,
+       &color1_o, &color2_o, &edge_color1_o, &edge_color2_o, &induced_o,
        &node_compat_fn, &edge_compat_fn))
     return NULL;
 
@@ -9373,12 +9375,18 @@ PyObject *igraphmodule_Graph_minimum_image_based_support(igraphmodule_GraphObjec
     return NULL;
   }
 
+  if (PyObject_IsTrue(induced_o)) {
+    induced = 1;
+  } else {
+    induced = 0;
+  }
+
   igraph_integer_t support;
   int res;
   res = igraph_mib_support(&self->g, &other->g, color1, color2, edge_color1, edge_color2,
             node_compat_fn == Py_None ? 0 : igraphmodule_i_Graph_isomorphic_vf2_node_compat_fn,
             edge_compat_fn == Py_None ? 0 : igraphmodule_i_Graph_isomorphic_vf2_edge_compat_fn,
-            &support);
+            induced, &support);
   if (color1) { igraph_vector_int_destroy(color1); free(color1); }
   if (color2) { igraph_vector_int_destroy(color2); free(color2); }
   if (edge_color1) { igraph_vector_int_destroy(edge_color1); free(edge_color1); }
@@ -15091,6 +15099,7 @@ struct PyMethodDef igraphmodule_Graph_methods[] = {
    "  the first graph. If C{None}, all edges have the same color.\n"
    "@param edge_color2: optional vector storing the coloring of the edges of\n"
    "  the second graph. If C{None}, all edges have the same color.\n"
+   "@param induced: use induced isomorphisms.\n"
    "@param node_compat_fn: a function that receives the two graphs and two\n"
    "  node indices (one from the first graph, one from the second graph) and\n"
    "  returns C{True} if the nodes given by the two indices are compatible\n"
